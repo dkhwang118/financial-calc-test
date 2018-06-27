@@ -8,22 +8,23 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Collections;
+using System.Data;
 
 namespace Financial_Calculator
 {
     public partial class FORM_add_transactions : Form
     {
+        /// <summary>
+        /// temp Transaction List to be displayed after parsing pdfs
+        /// </summary>
         private List<Transaction> _transactionList = new List<Transaction>();
-
-
-        private SqlConnection sql_con = new SqlConnection("Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename=C:\\Users\\Xsjadia\\Programs\\Financial Calculator\\Financial_Calculator\\Financial_Calculator\\Finances_DKH.mdf;Integrated Security = True; Connect Timeout = 30");
 
         public FORM_add_transactions()
         {
             InitializeComponent();
         }
 
-        
+
 
         private void FORM_add_transactions_Load(object sender, EventArgs e)
         {
@@ -32,7 +33,7 @@ namespace Financial_Calculator
             uxTransactionList.Columns.Add("Description", 650, HorizontalAlignment.Center);
             uxTransactionList.Columns.Add("Debit", 100, HorizontalAlignment.Center);
             uxTransactionList.Columns.Add("Credit", 100, HorizontalAlignment.Center);
-            
+
         }
 
         private void uxButton_Browse_Click(object sender, EventArgs e)
@@ -47,14 +48,14 @@ namespace Financial_Calculator
 
         private void uxParseTransactions_Click(object sender, EventArgs e)
         {
-            
+
 
             try
             {
                 using (PdfReader reader = new PdfReader(uxTextBox_transaction_file_location.Text))
                 {
                     List<string> raw_text = new List<string>();
-                    
+
                     StreamWriter outFile = new StreamWriter("testParse.txt"); // parsed text
                     StreamWriter outFileFull = new StreamWriter("testFull.txt"); // full text
                     for (int i = 1; i <= reader.NumberOfPages; i++)
@@ -100,7 +101,7 @@ namespace Financial_Calculator
                         bool headerBoarderDefined_Credit = false;
 
                         // Find "Debit" bounds
-                        for (int searchDebitIndex = parseIndexStart; searchDebitIndex < searchDebitIndex+5; searchDebitIndex++)
+                        for (int searchDebitIndex = parseIndexStart; searchDebitIndex < searchDebitIndex + 5; searchDebitIndex++)
                         {
                             if (strat.textCoordinates[searchDebitIndex].Text.Trim() == "Debit")
                             {
@@ -128,7 +129,7 @@ namespace Financial_Calculator
                         string amtPattern = @"\$[\d\.\,^\$]+";
                         Regex amtRegex = new Regex(amtPattern);
 
-                        
+
 
 
                         // find beginning of Transaction Data
@@ -138,8 +139,8 @@ namespace Financial_Calculator
                             if (dateRegex.Match(strat.textCoordinates[dateSearchIndex].Text).Success)
                             {
                                 // Search for credit/debit amount
-                                for (int amtSearchIndex = dateSearchIndex+1; amtSearchIndex < strat.textCoordinates.Count; amtSearchIndex++)
-                                {                               
+                                for (int amtSearchIndex = dateSearchIndex + 1; amtSearchIndex < strat.textCoordinates.Count; amtSearchIndex++)
+                                {
                                     // if index of transaction amount is found
                                     if (amtRegex.Match(strat.textCoordinates[amtSearchIndex].Text).Success)
                                     {
@@ -173,17 +174,17 @@ namespace Financial_Calculator
 
                                         // define description values
                                         StringBuilder sb = new StringBuilder();
-                                        for (int descIndex = dateSearchIndex+1; descIndex < amtSearchIndex; descIndex++)
+                                        for (int descIndex = dateSearchIndex + 1; descIndex < amtSearchIndex; descIndex++)
                                         {
                                             sb.Append(strat.textCoordinates[descIndex].Text);
                                         }
 
                                         // build transaction object and add to list
                                         Transaction temp = new Transaction(
-                                                                            strat.textCoordinates[dateSearchIndex].Text, 
-                                                                            sb.ToString().Trim(), 
-                                                                            tempDebitVal, 
-                                                                            tempCreditVal, 
+                                                                            strat.textCoordinates[dateSearchIndex].Text,
+                                                                            sb.ToString().Trim(),
+                                                                            tempDebitVal,
+                                                                            tempCreditVal,
                                                                             "n/a"
                                                                             );
                                         _transactionList.Add(temp);
@@ -193,9 +194,9 @@ namespace Financial_Calculator
 
                                         //break amtRegex loop
                                         break;
-                                   
+
                                     }
-                                }                           
+                                }
                             }
                         }
 
@@ -265,6 +266,7 @@ namespace Financial_Calculator
                     }
 
                     outFile.Close();
+                    uxTransactionsToDatabase.Enabled = true;
                 }
             }
             catch (IOException ioe)
@@ -273,5 +275,52 @@ namespace Financial_Calculator
             }
         }
 
+        private void uxTransactionsToDatabase_Click(object sender, EventArgs e)
+        {
+
+            // connect to sql database
+            string sqlConnectionString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename=C:\\Users\\Xsjadia\\Programs\\Financial Calculator\\Financial_Calculator\\Financial_Calculator\\Finances_DKH.mdf;Integrated Security = True; Connect Timeout = 30";
+            SqlConnection sql_con = new SqlConnection(sqlConnectionString);
+            SqlDataAdapter sqlAdapter = new SqlDataAdapter();
+            DataSet ds = new DataSet();
+            SqlCommand sql_cmd_InsertTransactions = new SqlCommand();
+            sql_cmd_InsertTransactions.CommandType = CommandType.Text;
+
+            // get first and last transaction date
+            string firstTransDate = _transactionList[0].Date.Replace('/', '_');
+            string lastTransDate = _transactionList[_transactionList.Count-1].Date.Replace('/', '_');
+            string sql_table_name = "transactions_" + firstTransDate + "_to_" + lastTransDate;
+
+            try
+            {
+                // create new table
+                SqlCommand sql_cmd_CreateNewTransactionTable = new SqlCommand();
+                sql_cmd_CreateNewTransactionTable.CommandText = "CREATE TABLE " + sql_table_name
+                                                                + " (t_date text, t_description text, t_debit decimal(15,2), t_credit decimal(15,2), t_transType text)";
+                sql_cmd_CreateNewTransactionTable.Connection = sql_con;
+                sql_con.Open();
+                sql_cmd_CreateNewTransactionTable.ExecuteNonQuery();
+                sql_con.Close();
+
+                foreach (Transaction t in _transactionList)
+                {
+                    sql_cmd_InsertTransactions.CommandText = "INSERT " + sql_table_name + " (t_date, t_description, t_debit, t_credit, t_transType) "
+                                                              + " VALUES ("
+                                                              + "'" + t.Date + "', '"
+                                                              + t.Description + "', "
+                                                              + t.Debit + ", "
+                                                              + t.Credit + ", '"
+                                                              + t.Category + "')";
+                    sql_cmd_InsertTransactions.Connection = sql_con;
+                    sql_con.Open();
+                    sql_cmd_InsertTransactions.ExecuteNonQuery();
+                    sql_con.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString());
+            }        
+        }  
     }
 }
