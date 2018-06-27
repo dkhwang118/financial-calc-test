@@ -24,8 +24,11 @@ namespace Financial_Calculator
             InitializeComponent();
         }
 
-
-
+        /// <summary>
+        /// Populate ListView headers upon form LOAD
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void FORM_add_transactions_Load(object sender, EventArgs e)
         {
             uxTransactionList.View = View.Details;
@@ -36,6 +39,11 @@ namespace Financial_Calculator
 
         }
 
+        /// <summary>
+        /// Click Event to browse for transaction PDF
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void uxButton_Browse_Click(object sender, EventArgs e)
         {
             OpenFileDialog ofd = new OpenFileDialog();
@@ -46,10 +54,13 @@ namespace Financial_Calculator
             }
         }
 
+        /// <summary>
+        /// Click event to parse transaction data from PDF selected
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void uxParseTransactions_Click(object sender, EventArgs e)
         {
-
-
             try
             {
                 using (PdfReader reader = new PdfReader(uxTextBox_transaction_file_location.Text))
@@ -61,15 +72,10 @@ namespace Financial_Calculator
                     for (int i = 1; i <= reader.NumberOfPages; i++)
                     {
                         // Rectangle Text Box Capture Method
-
                         RectangleLocationTextExtractionStrategy strat = new RectangleLocationTextExtractionStrategy();
                         string pageText = PdfTextExtractor.GetTextFromPage(reader, i, strat);
 
-                        // find start of transactions on pdf page
-
-                        // find headers of page
-
-                        // find "Date" header and match coordinates with "Description"
+                        // find Headers; first find "Date" header and match coordinates with "Description"
                         int parseIndexStart = 0;
                         bool headersFound = false;
                         for (int dateHeaderSearchIndex = 0; dateHeaderSearchIndex < strat.textCoordinates.Count; dateHeaderSearchIndex++)
@@ -91,7 +97,7 @@ namespace Financial_Calculator
                             }
                         }
 
-                        // if headers aren't found on page ==> null page; skip page or break loop
+                        // if headers aren't found on page ==> null page; no transaction data present ==> skip page 
                         if (!headersFound) continue;
 
                         // Find Credit/Debit header bounds to categorize amount values
@@ -120,17 +126,11 @@ namespace Financial_Calculator
                             }
                         }
 
-
-
-
                         // Begin decoding/stitching parsed text boxes
                         string datePattern = @"\d+/\d+/\d+";
                         Regex dateRegex = new Regex(datePattern);
                         string amtPattern = @"\$[\d\.\,^\$]+";
                         Regex amtRegex = new Regex(amtPattern);
-
-
-
 
                         // find beginning of Transaction Data
                         for (int dateSearchIndex = parseIndexStart; dateSearchIndex < strat.textCoordinates.Count; dateSearchIndex++)
@@ -138,14 +138,16 @@ namespace Financial_Calculator
                             // if text matches datePattern
                             if (dateRegex.Match(strat.textCoordinates[dateSearchIndex].Text).Success)
                             {
-                                // Search for credit/debit amount
+                                // Transaction beginning found; Search for credit/debit amount to define length of description
                                 for (int amtSearchIndex = dateSearchIndex + 1; amtSearchIndex < strat.textCoordinates.Count; amtSearchIndex++)
                                 {
                                     // if index of transaction amount is found
                                     if (amtRegex.Match(strat.textCoordinates[amtSearchIndex].Text).Success)
                                     {
+                                        // determine if amount is "Debit" or "Credit"
                                         decimal tempDebitVal = 0;
                                         decimal tempCreditVal = 0;
+
                                         // if Debit header is before the Credit header
                                         if (headerRightBound_Credit - headerRightBound_Debit > 0)
                                         {
@@ -180,13 +182,11 @@ namespace Financial_Calculator
                                         }
 
                                         // build transaction object and add to list
-                                        Transaction temp = new Transaction(
-                                                                            strat.textCoordinates[dateSearchIndex].Text,
+                                        Transaction temp = new Transaction(strat.textCoordinates[dateSearchIndex].Text,
                                                                             sb.ToString().Trim(),
                                                                             tempDebitVal,
                                                                             tempCreditVal,
-                                                                            "n/a"
-                                                                            );
+                                                                            "n/a");
                                         _transactionList.Add(temp);
 
                                         // start next search at end of current transaction
@@ -194,7 +194,6 @@ namespace Financial_Calculator
 
                                         //break amtRegex loop
                                         break;
-
                                     }
                                 }
                             }
@@ -202,19 +201,12 @@ namespace Financial_Calculator
 
                         // Regex Match Method
                         /*
-
-                        // USING COLLECTION OF MATCHES
-
                         string pageText = PdfTextExtractor.GetTextFromPage(reader, i);
                         //raw_text.Add(PdfTextExtractor.GetTextFromPage(reader, i));
                         outFileFull.WriteLine(PdfTextExtractor.GetTextFromPage(reader, i,));
-
                         // string transDate = @"(\d+/\d+/\d+) ([^\$]+) \$([\d\.\,]+) \$([\d\.\,]+)";
                         string transDate = @"(\d+/\d+/\d+) ([^\$]+) \$([\d\.\,^\$]+)"; // gets date, name, and first dollar value
                         string transDateAlt = @"(\n\d+/\d+/\d+) ([^\$]+) \$([\d\.\,]+\s)";
-
-
-
                         // regex to parse individual transactions
                         MatchCollection transMatches = Regex.Matches(pageText, transDate);
                         int previous_index = 0;
@@ -255,7 +247,6 @@ namespace Financial_Calculator
                             }  
                         }
                         */
-
                     }
 
                     // Post transactions to uxTransactionList
@@ -271,7 +262,7 @@ namespace Financial_Calculator
             }
             catch (IOException ioe)
             {
-                MessageBox.Show("Incompatible File, Please Try Again");
+                MessageBox.Show("Incompatible File, Please Try Again. \nError: " + ioe.ToString());
             }
         }
 
@@ -302,6 +293,7 @@ namespace Financial_Calculator
                 sql_cmd_CreateNewTransactionTable.ExecuteNonQuery();
                 sql_con.Close();
 
+                // insert transaction data into DB
                 foreach (Transaction t in _transactionList)
                 {
                     sql_cmd_InsertTransactions.CommandText = "INSERT " + sql_table_name + " (t_date, t_description, t_debit, t_credit, t_transType) "
@@ -316,6 +308,7 @@ namespace Financial_Calculator
                     sql_cmd_InsertTransactions.ExecuteNonQuery();
                     sql_con.Close();
                 }
+                MessageBox.Show("Transaction Data Saved!");
             }
             catch (Exception ex)
             {
