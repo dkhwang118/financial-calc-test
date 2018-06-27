@@ -70,6 +70,7 @@ namespace Financial_Calculator
 
                         // find "Date" header and match coordinates with "Description"
                         int parseIndexStart = 0;
+                        bool headersFound = false;
                         for (int dateHeaderSearchIndex = 0; dateHeaderSearchIndex < strat.textCoordinates.Count; dateHeaderSearchIndex++)
                         {
                             if (strat.textCoordinates[dateHeaderSearchIndex].Text == "Date")
@@ -81,10 +82,45 @@ namespace Financial_Calculator
                                     if (strat.textCoordinates[descriptSearchIndex].Text == "Description")
                                     {
                                         parseIndexStart = descriptSearchIndex;
+                                        headersFound = true;
+                                        break;
                                     }
                                 }
+                                if (headersFound) break;
                             }
                         }
+
+                        // if headers aren't found on page ==> null page; skip page or break loop
+                        if (!headersFound) continue;
+
+                        // Find Credit/Debit header bounds to categorize amount values
+                        float headerRightBound_Debit = 0;
+                        float headerRightBound_Credit = 0;
+                        bool headerBoarderDefined_Debit = false;
+                        bool headerBoarderDefined_Credit = false;
+
+                        // Find "Debit" bounds
+                        for (int searchDebitIndex = parseIndexStart; searchDebitIndex < searchDebitIndex+5; searchDebitIndex++)
+                        {
+                            if (strat.textCoordinates[searchDebitIndex].Text.Trim() == "Debit")
+                            {
+                                headerRightBound_Debit = strat.textCoordinates[searchDebitIndex].Rect.Right;
+                                headerBoarderDefined_Debit = true;
+                            }
+                            if (strat.textCoordinates[searchDebitIndex].Text.Trim() == "Credit")
+                            {
+                                headerRightBound_Credit = strat.textCoordinates[searchDebitIndex].Rect.Right;
+                                headerBoarderDefined_Credit = true;
+                            }
+                            if (headerBoarderDefined_Debit && headerBoarderDefined_Credit)
+                            {
+                                parseIndexStart = searchDebitIndex;
+                                break;
+                            }
+                        }
+
+
+
 
                         // Begin decoding/stitching parsed text boxes
                         string datePattern = @"\d+/\d+/\d+";
@@ -92,8 +128,8 @@ namespace Financial_Calculator
                         string amtPattern = @"\$[\d\.\,^\$]+";
                         Regex amtRegex = new Regex(amtPattern);
 
-                        int currentDateIndex;
-                        int nextDateIndex;
+                        
+
 
                         // find beginning of Transaction Data
                         for (int dateSearchIndex = parseIndexStart; dateSearchIndex < strat.textCoordinates.Count; dateSearchIndex++)
@@ -103,11 +139,39 @@ namespace Financial_Calculator
                             {
                                 // Search for credit/debit amount
                                 for (int amtSearchIndex = dateSearchIndex+1; amtSearchIndex < strat.textCoordinates.Count; amtSearchIndex++)
-                                {
+                                {                               
                                     // if index of transaction amount is found
                                     if (amtRegex.Match(strat.textCoordinates[amtSearchIndex].Text).Success)
                                     {
-                                        // define description values and create Transaction object from data
+                                        decimal tempDebitVal = 0;
+                                        decimal tempCreditVal = 0;
+                                        // if Debit header is before the Credit header
+                                        if (headerRightBound_Credit - headerRightBound_Debit > 0)
+                                        {
+                                            // if transaction amount box starts to the left of the "Debit" header boarder end
+                                            if (strat.textCoordinates[amtSearchIndex].Rect.Left < headerRightBound_Debit)
+                                            {
+                                                tempDebitVal = Convert.ToDecimal(strat.textCoordinates[amtSearchIndex].Text.Substring(1));
+                                            }
+                                            else
+                                            {
+                                                tempCreditVal = Convert.ToDecimal(strat.textCoordinates[amtSearchIndex].Text.Substring(1));
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // if transaction amount box starts to the left of the "Credit" header boarder end
+                                            if (strat.textCoordinates[amtSearchIndex].Rect.Left < headerRightBound_Credit)
+                                            {
+                                                tempCreditVal = Convert.ToDecimal(strat.textCoordinates[amtSearchIndex].Text.Substring(1));
+                                            }
+                                            else
+                                            {
+                                                tempDebitVal = Convert.ToDecimal(strat.textCoordinates[amtSearchIndex].Text.Substring(1));
+                                            }
+                                        }
+
+                                        // define description values
                                         StringBuilder sb = new StringBuilder();
                                         for (int descIndex = dateSearchIndex+1; descIndex < amtSearchIndex; descIndex++)
                                         {
@@ -115,11 +179,17 @@ namespace Financial_Calculator
                                         }
 
                                         // build transaction object and add to list
-                                        Transaction temp = new Transaction(strat.textCoordinates[dateSearchIndex].Text, sb.ToString().Trim(), Convert.ToDecimal(strat.textCoordinates[amtSearchIndex].Text.Substring(1)), 0, "n/a");
+                                        Transaction temp = new Transaction(
+                                                                            strat.textCoordinates[dateSearchIndex].Text, 
+                                                                            sb.ToString().Trim(), 
+                                                                            tempDebitVal, 
+                                                                            tempCreditVal, 
+                                                                            "n/a"
+                                                                            );
                                         _transactionList.Add(temp);
 
                                         // start next search at end of current transaction
-                                        dateSearchIndex = amtSearchIndex + 1;
+                                        dateSearchIndex = amtSearchIndex;
 
                                         //break amtRegex loop
                                         break;
@@ -190,7 +260,7 @@ namespace Financial_Calculator
                     // Post transactions to uxTransactionList
                     foreach (Transaction t in _transactionList)
                     {
-                        string[] tempData = { t.Description, t.Credit.ToString(), t.Debit.ToString() };
+                        string[] tempData = { t.Description, t.Debit.ToString(), t.Credit.ToString() };
                         uxTransactionList.Items.Add(t.Date).SubItems.AddRange(tempData);
                     }
 
